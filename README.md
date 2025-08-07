@@ -1,6 +1,6 @@
 # Net-Cat 🐾
 
-A Go-based reimplementation of the classic NetCat (`nc`) utility in a server-client architecture. Net-Cat enables TCP-based group chat functionality, supporting up to 10 simultaneous clients with persistent chat history and real-time user notifications.
+A Go reimplementation of NetCat. Net-Cat enables TCP-based group chat functionality, supporting up to 10 simultaneous clients with persistent chat history and real-time user notifications.
 
 ---
 
