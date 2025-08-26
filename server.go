@@ -30,12 +30,10 @@ _)      \.___.,|     .'
 var (
 	mu       sync.Mutex
 	users    = make(map[string]net.Conn)
-	messages []string
 	maxConns = 10
 )
 
 func main() {
-
 	// Get PORT
 	port := ":8989"
 	if len(os.Args) == 2 {
