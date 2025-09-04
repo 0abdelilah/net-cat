@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"net"
 	"strings"
 	"time"
@@ -10,12 +11,7 @@ import (
 type Message struct {
 	Sender  string
 	Content string
-	Time    string
 }
-
-var messages []Message
-
-// new messages with current timing
 
 func IsLetter(text string) bool {
 	valid := true
@@ -29,44 +25,48 @@ func IsLetter(text string) bool {
 }
 
 func handleConn(conn net.Conn) {
+	// Reject if group full
+	if len(users) >= maxConns {
+		conn.Write([]byte("Group is full"))
+		conn.Close()
+		return
+	}
+
+	// Send welcome
 	if _, err := conn.Write(initialMsg); err != nil {
 		fmt.Println("Failed to send welcome:", err)
 		return
 	}
 
-	// Loop until a valid username
-	name := ""
+	// Ask for valid username
+	var name string
 	for {
 		conn.Write([]byte("[ENTER YOUR NAME]: "))
-		nameBuf := make([]byte, 1024)
-		n, err := conn.Read(nameBuf)
+		buf := make([]byte, 1024)
+		n, err := conn.Read(buf)
 		if err != nil {
 			fmt.Println("Failed to read username:", err)
+			conn.Close()
 			return
 		}
-		name = strings.TrimSpace(string(nameBuf[:n]))
-
-		if len(name) == 0 {
-			continue
-		}
-
-		if !IsLetter(name) {
+		name = strings.TrimSpace(string(buf[:n]))
+		if len(name) == 0 || !IsLetter(name) {
 			conn.Write([]byte("Invalid name.\n"))
 			continue
 		}
 
 		mu.Lock()
 		if _, exists := users[name]; exists {
-			conn.Write([]byte("Name already taken.\n"))
 			mu.Unlock()
+			conn.Write([]byte("Name already taken.\n"))
 			continue
 		}
-
 		users[name] = conn
 		mu.Unlock()
 		break
 	}
 
+	// Ensure leave message runs no matter what
 	defer closeConn(name)
 
 	// Send chat history
@@ -80,7 +80,6 @@ func handleConn(conn net.Conn) {
 	joinMsg := Message{
 		Sender:  name,
 		Content: fmt.Sprintf("%s has joined our chat...\n", name),
-		Time:    time.Now().Format("2006-01-02 15:04:05"),
 	}
 	mu.Lock()
 	messages = append(messages, joinMsg)
@@ -94,16 +93,20 @@ func handleConn(conn net.Conn) {
 		conn.Write([]byte(prompt))
 
 		n, err := conn.Read(buf)
-		if err != nil || n == 0 {
+		if err != nil {
+			if err == io.EOF {
+				fmt.Println(name, "disconnected")
+			} else {
+				fmt.Println("Read error:", err)
+			}
+			break // trigger defer closeConn(name)
+		}
+		if n == 0 {
 			continue
 		}
 
 		text := strings.TrimSpace(string(buf[:n]))
-		if text == "" {
-			continue
-		}
-
-		if !IsLetter(text) {
+		if text == "" || !IsLetter(text) {
 			conn.Write([]byte("Invalid message.\n"))
 			continue
 		}
@@ -111,7 +114,6 @@ func handleConn(conn net.Conn) {
 		newMsg := Message{
 			Sender:  name,
 			Content: fmt.Sprintf("[%s][%s]: %s\n", timestamp, name, text),
-			Time:    timestamp,
 		}
 		mu.Lock()
 		messages = append(messages, newMsg)
@@ -124,17 +126,19 @@ func closeConn(name string) {
 	defer mu.Unlock()
 
 	conn := users[name]
-	delete(users, name)
-	conn.Close()
 
-	messages = append(messages, Message{
+	// broadcast leave BEFORE closing connection
+	leaveMsg := Message{
 		Sender:  name,
 		Content: fmt.Sprintf("%s has left our chat...\n", name),
-		Time:    time.Now().Format("2006-01-02 15:04:05"),
-	})
+	}
+	messages = append(messages, leaveMsg)
+
+	delete(users, name)
+	conn.Close()
 }
 
-func startBroadcaster() {
+func broadcastMessage() {
 	lastMsgCount := 0
 	for {
 		time.Sleep(100 * time.Millisecond)
@@ -149,15 +153,14 @@ func startBroadcaster() {
 				}
 
 				// move to new line, print message
-				user.Write([]byte("\n" + newMsg.Content))
+				user.Write([]byte("\033[s" + "\n" + newMsg.Content))
 
 				// reprint prompt and protect it
 				timestamp := time.Now().Format("2006-01-02 15:04:05")
 				prompt := fmt.Sprintf("[%s][%s]: ", timestamp, uname)
 
-				user.Write([]byte(prompt + "\033[s")) // save position
-				user.Write([]byte("\033[u"))          // restore
-
+				user.Write([]byte(prompt))
+				user.Write([]byte("\033[u\033[2B"))
 			}
 
 			lastMsgCount = len(messages)

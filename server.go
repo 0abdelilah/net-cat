@@ -28,9 +28,10 @@ _)      \.___.,|     .'
 `)
 
 var (
-	mu       sync.Mutex
 	users    = make(map[string]net.Conn)
 	maxConns = 10
+	messages []Message
+	mu       sync.Mutex
 )
 
 func main() {
@@ -51,14 +52,10 @@ func main() {
 	}
 	fmt.Println("Started listening on localhost" + port)
 
-	go startBroadcaster()
+	go broadcastMessage()
 
 	// Accept connections
 	for {
-		if len(users) >= maxConns {
-			continue
-		}
-
 		conn, err := listener.Accept()
 		if err != nil {
 			fmt.Println("Connection error:", err)
