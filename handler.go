@@ -140,22 +140,26 @@ func startBroadcaster() {
 		time.Sleep(100 * time.Millisecond)
 
 		mu.Lock()
-		// inside startBroadcaster()
 		if len(messages) > lastMsgCount {
 			newMsg := messages[len(messages)-1]
+
 			for uname, user := range users {
 				if uname == newMsg.Sender {
 					continue
 				}
-				// send the new message
+
+				// move to new line, print message
 				user.Write([]byte("\n" + newMsg.Content))
 
-				// reprint prompt for user
+				// reprint prompt and protect it
 				timestamp := time.Now().Format("2006-01-02 15:04:05")
 				prompt := fmt.Sprintf("[%s][%s]: ", timestamp, uname)
 
-				user.Write([]byte(prompt))
+				user.Write([]byte(prompt + "\033[s")) // save position
+				user.Write([]byte("\033[u"))          // restore
+
 			}
+
 			lastMsgCount = len(messages)
 		}
 		mu.Unlock()
